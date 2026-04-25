@@ -89,8 +89,10 @@ Then set at least:
 The Compose file uses:
 
 - `UPLOAD_LOCATION=/mnt/photos`
-- `JELLYFIN_MEDIA_SOURCE=/mnt/media/jellyfin`
-- `JELLYFIN_MEDIA_TARGET=/mnt/media/jellyfin`
+- `JELLYFIN_MOVIES_SOURCE=/mnt/media/videos`
+- `JELLYFIN_MOVIES_TARGET=/media/usb2/videos`
+- `JELLYFIN_MUSIC_SOURCE=/mnt/music`
+- `JELLYFIN_MUSIC_TARGET=/media/music`
 - `DB_DATA_LOCATION=/srv/immich/postgres`
 
 ## 4. Start the stack manually
@@ -121,8 +123,10 @@ JELLYFIN_CONFIG_DIR=/etc/jellyfin
 JELLYFIN_CACHE_DIR=/var/cache/jellyfin
 JELLYFIN_DATA_DIR=/var/lib/jellyfin
 JELLYFIN_LOG_DIR=/var/log/jellyfin
-JELLYFIN_MEDIA_SOURCE=/mnt/media/jellyfin
-JELLYFIN_MEDIA_TARGET=/mnt/media/jellyfin
+JELLYFIN_MOVIES_SOURCE=/mnt/media/videos
+JELLYFIN_MOVIES_TARGET=/media/usb2/videos
+JELLYFIN_MUSIC_SOURCE=/mnt/music
+JELLYFIN_MUSIC_TARGET=/media/music
 ```
 
 Before starting the containerized Jellyfin:

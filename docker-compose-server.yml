@@ -75,7 +75,8 @@ services:
       - ${JELLYFIN_CACHE_DIR}:/var/cache/jellyfin
       - ${JELLYFIN_DATA_DIR}:/var/lib/jellyfin
       - ${JELLYFIN_LOG_DIR}:/var/log/jellyfin
-      - ${JELLYFIN_MEDIA_SOURCE}:${JELLYFIN_MEDIA_TARGET}:ro
+      - ${JELLYFIN_MOVIES_SOURCE}:${JELLYFIN_MOVIES_TARGET}:ro
+      - ${JELLYFIN_MUSIC_SOURCE}:${JELLYFIN_MUSIC_TARGET}:ro
     environment:
       - TZ=${TZ}
       - JELLYFIN_PublishedServerUrl=${JELLYFIN_PUBLISHED_SERVER_URL}
