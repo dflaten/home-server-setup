@@ -1,0 +1,10 @@
+.env
+.env.local
+.codex
+
+# Local bind-mount data directories if you ever create them in-repo
+library/
+postgres/
+
+# Editor / OS noise
+.DS_Store
