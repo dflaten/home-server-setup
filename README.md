@@ -5,8 +5,9 @@ This repo is set up to run a small Docker Compose stack on Ubuntu with:
 - Immich
 - Jellyfin
 - Piper
+- Faster Whisper
 
-The important constraint is that the USB-backed storage must be mounted before the stack starts.
+The important constraint is that any USB-backed storage used by the containers must be mounted before the stack starts.
 
 The Immich part of this repo intentionally stays close to your current working Compose file so that the boot automation does not force an Immich migration at the same time.
 
@@ -14,7 +15,7 @@ The Immich part of this repo intentionally stays close to your current working C
 
 Use two layers:
 
-1. `/etc/fstab` mounts the USB drives by `UUID`, not by `/dev/sda2` or `/dev/sdb1`.
+1. `/etc/fstab` mounts the USB drives by `UUID`, not by `/dev/sdX` names.
 2. A `systemd` service starts `docker compose up -d` only after those mount points are available.
 
 This is more stable than manual `mount` commands because `/dev/sdX` names can change between boots.
@@ -28,41 +29,40 @@ lsblk -f
 sudo blkid
 ```
 
-Find the filesystem `UUID` values for the two partitions you currently mount manually:
+Find the filesystem `UUID` values for the partitions you want Docker services to use.
 
-- `/dev/sdb1`
-- `/dev/sda2`
+Pick stable mount points that match the paths you intend to reference in `.env`.
 
-Pick stable mount points. This repo expects:
+Examples:
 
-- `/mnt/photos` for Immich uploads
-- `/mnt/media` for Jellyfin media
+- `/media/usb`
+- `/mnt/media`
+- `/mnt/music`
 
 Create them once:
 
 ```bash
-sudo mkdir -p /mnt/photos /mnt/media /srv/immich/postgres
-sudo chown -R 1000:1000 /mnt/photos /mnt/media /srv/immich
+sudo mkdir -p /media/usb /mnt/media /mnt/music
 ```
 
-Note: the Immich database should stay on the internal disk. Do not place Postgres data on a removable USB drive.
+Note: if Immich already has a working database directory, keep using that exact existing path. Do not invent a new `DB_DATA_LOCATION` unless you are intentionally creating a new database location. In general, keep the database on the internal disk, not on removable USB storage.
 
 ## 2. Add `/etc/fstab` entries
 
 Example:
 
 ```fstab
-UUID=REPLACE_WITH_USB1_UUID  /mnt/photos  ext4  defaults,nofail,x-systemd.device-timeout=10s  0  2
-UUID=REPLACE_WITH_USB2_UUID  /mnt/media   ext4  defaults,nofail,x-systemd.device-timeout=10s  0  2
+UUID=REPLACE_WITH_USB1_UUID  /media/usb  ext4   defaults,nofail,x-systemd.device-timeout=10s  0  2
+UUID=REPLACE_WITH_USB2_UUID  /mnt/media  exfat  defaults,nofail,uid=1000,gid=1000,umask=0022,x-systemd.device-timeout=10s  0  0
 ```
 
-If one or both USB filesystems are `ntfs`, `exfat`, or something else, replace `ext4` with the actual filesystem type shown by `lsblk -f`.
+Replace the filesystem type and mount options with the values appropriate for your drives. For example, Linux-native filesystems like `ext4` usually use `defaults`, while `exfat` often needs `uid`, `gid`, and `umask` options.
 
 Then test:
 
 ```bash
 sudo mount -a
-findmnt /mnt/photos
+findmnt /media/usb
 findmnt /mnt/media
 ```
 
@@ -86,14 +86,97 @@ Then set at least:
 - `DB_PASSWORD`
 - `JELLYFIN_PUBLISHED_SERVER_URL`
 
-The Compose file uses:
+Then update the storage-related variables so they match your existing working setup and your chosen mount points.
 
-- `UPLOAD_LOCATION=/mnt/photos`
-- `JELLYFIN_MOVIES_SOURCE=/mnt/media/videos`
-- `JELLYFIN_MOVIES_TARGET=/media/usb2/videos`
-- `JELLYFIN_MUSIC_SOURCE=/mnt/music`
-- `JELLYFIN_MUSIC_TARGET=/media/music`
-- `DB_DATA_LOCATION=/srv/immich/postgres`
+For Immich, preserve your current working values:
+
+- `UPLOAD_LOCATION`
+- `DB_DATA_LOCATION`
+- `DB_PASSWORD`
+- `DB_USERNAME`
+- `DB_DATABASE_NAME`
+- `IMMICH_VERSION`
+
+Do not change `UPLOAD_LOCATION` or `DB_DATA_LOCATION` unless you are intentionally migrating data.
+
+For Jellyfin, configure:
+
+- `JELLYFIN_UID`
+- `JELLYFIN_GID`
+- `JELLYFIN_CONFIG_DIR`
+- `JELLYFIN_CACHE_DIR`
+- `JELLYFIN_DATA_DIR`
+- `JELLYFIN_LOG_DIR`
+- `JELLYFIN_PUBLISHED_SERVER_URL`
+- `JELLYFIN_MOVIES_SOURCE`
+- `JELLYFIN_MOVIES_TARGET`
+- `JELLYFIN_MUSIC_SOURCE`
+- `JELLYFIN_MUSIC_TARGET`
+
+For voice services, configure:
+
+- `PUID`
+- `PGID`
+- `TZ`
+- `PIPER_VOICE`
+- `WHISPER_BEAM`
+- `WHISPER_LANG`
+- `WHISPER_MODEL`
+
+Example path mapping:
+
+```env
+UPLOAD_LOCATION=/media/usb
+DB_DATA_LOCATION=/path/to/your/existing/immich/postgres
+
+JELLYFIN_MOVIES_SOURCE=/mnt/media/videos
+JELLYFIN_MOVIES_TARGET=/media/usb2/videos
+JELLYFIN_MUSIC_SOURCE=/mnt/music
+JELLYFIN_MUSIC_TARGET=/media/music
+```
+
+How that works:
+
+- `UPLOAD_LOCATION` is the real host path mounted into Immich at `/usr/src/app/upload`.
+- `JELLYFIN_*_SOURCE` is the real host path Docker reads from.
+- `JELLYFIN_*_TARGET` is the path Jellyfin sees inside the container and stores in its library database.
+
+Concrete example:
+
+- If your movies are really stored on the host at `/mnt/media/videos`, set `JELLYFIN_MOVIES_SOURCE=/mnt/media/videos`.
+- If your existing Jellyfin library already expects those movies at `/media/usb2/videos`, keep `JELLYFIN_MOVIES_TARGET=/media/usb2/videos`.
+- The Compose file will bind-mount `/mnt/media/videos` from the host so Jellyfin sees it at `/media/usb2/videos` inside the container.
+
+`.env` is local machine configuration. Do not commit it to Git. Only commit `.env.example`.
+
+## Environment variable reference
+
+| Variable | Service(s) | Meaning | Example | Notes |
+| --- | --- | --- | --- | --- |
+| `TZ` | Jellyfin, Piper, Faster Whisper | Time zone passed into containers that use local time settings. | `America/Chicago` | Safe to change. Use an IANA zone name. |
+| `PUID` | Piper, Faster Whisper | Numeric user ID the LinuxServer containers run as. | `1000` | Should match the host user that should own `/config` files. Changing later can create permission mismatches. |
+| `PGID` | Piper, Faster Whisper | Numeric group ID the LinuxServer containers run as. | `1000` | Should match the host group that should own `/config` files. Changing later can create permission mismatches. |
+| `UPLOAD_LOCATION` | Immich | Real host path mounted into Immich at `/usr/src/app/upload`. | `/mnt/photos` | Do not change after deploy unless you are intentionally moving Immich uploads. |
+| `JELLYFIN_MOVIES_SOURCE` | Jellyfin | Real host path Docker reads movie files from. | `/mnt/media/videos` | Host-side source of the bind mount. |
+| `JELLYFIN_MOVIES_TARGET` | Jellyfin | In-container path where Jellyfin sees the movie library. | `/media/usb2/videos` | If migrating an existing Jellyfin library, keep this aligned with the path already stored in Jellyfin's database. |
+| `JELLYFIN_MUSIC_SOURCE` | Jellyfin | Real host path Docker reads music files from. | `/mnt/music` | Host-side source of the bind mount. |
+| `JELLYFIN_MUSIC_TARGET` | Jellyfin | In-container path where Jellyfin sees the music library. | `/media/music` | If migrating an existing Jellyfin library, keep this aligned with the path already stored in Jellyfin's database. |
+| `DB_DATA_LOCATION` | Immich Postgres | Real host path for the Postgres data directory. | `/srv/immich/postgres` | Keep this on the internal disk. Do not change after first deploy unless you are intentionally migrating the database. |
+| `IMMICH_VERSION` | Immich server, Immich machine learning | Image tag used for both Immich containers. | `release` | Changing this upgrades or downgrades Immich. Treat as an application version change, not a cosmetic config change. |
+| `DB_PASSWORD` | Immich Postgres, Immich server | Postgres password for the Immich database. | `changeMeToALongAlphaNumericPassword` | Set before first deploy. Changing it later requires updating all consumers consistently. |
+| `DB_USERNAME` | Immich Postgres, Immich server | Postgres username for Immich. | `postgres` | Safe to leave as `postgres` unless you are intentionally managing custom DB roles. |
+| `DB_DATABASE_NAME` | Immich Postgres, Immich server | Postgres database name for Immich. | `immich` | Usually set once and left alone. Changing later requires a corresponding database migration or rebuild. |
+| `JELLYFIN_UID` | Jellyfin | Numeric user ID Jellyfin runs as. | `998` | For native-Ubuntu Jellyfin migrations, this should usually match the existing `jellyfin` account on the host. |
+| `JELLYFIN_GID` | Jellyfin | Numeric group ID Jellyfin runs as. | `998` | For native-Ubuntu Jellyfin migrations, this should usually match the existing `jellyfin` group on the host. |
+| `JELLYFIN_CONFIG_DIR` | Jellyfin | Host path mounted to `/etc/jellyfin`. | `/etc/jellyfin` | Reuse the existing host path when migrating from a native install. |
+| `JELLYFIN_CACHE_DIR` | Jellyfin | Host path mounted to `/var/cache/jellyfin`. | `/var/cache/jellyfin` | Reuse the existing host path when migrating from a native install. |
+| `JELLYFIN_DATA_DIR` | Jellyfin | Host path mounted to `/var/lib/jellyfin`. | `/var/lib/jellyfin` | Contains Jellyfin state and database files. Preserve it during migration. |
+| `JELLYFIN_LOG_DIR` | Jellyfin | Host path mounted to `/var/log/jellyfin`. | `/var/log/jellyfin` | Safe to relocate if needed, but keep it writable by the Jellyfin user. |
+| `JELLYFIN_PUBLISHED_SERVER_URL` | Jellyfin | Public URL Jellyfin advertises to clients. | `http://192.168.1.10:8096` | Should match how clients on your network reach Jellyfin. |
+| `PIPER_VOICE` | Piper | Default TTS voice model Piper loads. | `en_US-lessac-medium` | Change this to swap the default voice. Availability depends on the image's supported voices. |
+| `WHISPER_BEAM` | Faster Whisper | Beam search width used during transcription. | `1` | Lower is faster; higher may improve accuracy at higher CPU cost. |
+| `WHISPER_LANG` | Faster Whisper | Language hint for transcription. | `auto` | Use `auto` for auto-detection or set a language code for more predictable recognition. |
+| `WHISPER_MODEL` | Faster Whisper | Speech-to-text model size. | `base` | Larger models are usually more accurate and slower. Pick based on your hardware. |
 
 ## 4. Start the stack manually
 
@@ -114,7 +197,7 @@ On Ubuntu package installs, the usual host paths are:
 - `/var/lib/jellyfin`
 - `/var/log/jellyfin`
 
-This repo's Compose file is set up for that migration style. In `.env`, set:
+This repo's Compose file is set up for that migration style. In `.env`, set the Jellyfin state directories to the existing host paths from the native install:
 
 ```env
 JELLYFIN_UID=998
@@ -123,11 +206,24 @@ JELLYFIN_CONFIG_DIR=/etc/jellyfin
 JELLYFIN_CACHE_DIR=/var/cache/jellyfin
 JELLYFIN_DATA_DIR=/var/lib/jellyfin
 JELLYFIN_LOG_DIR=/var/log/jellyfin
+JELLYFIN_MOVIES_SOURCE=/path/on/host/for/movies
+JELLYFIN_MOVIES_TARGET=/path/jellyfin/already/expects/for/movies
+JELLYFIN_MUSIC_SOURCE=/path/on/host/for/music
+JELLYFIN_MUSIC_TARGET=/path/jellyfin/already/expects/for/music
+```
+
+The `*_SOURCE` values are real host paths. The `*_TARGET` values are the paths visible inside the container. If you are migrating an existing Jellyfin install, keep the `*_TARGET` paths aligned with the paths already stored in Jellyfin's database so library metadata still resolves correctly.
+
+Worked migration example:
+
+```env
 JELLYFIN_MOVIES_SOURCE=/mnt/media/videos
 JELLYFIN_MOVIES_TARGET=/media/usb2/videos
 JELLYFIN_MUSIC_SOURCE=/mnt/music
 JELLYFIN_MUSIC_TARGET=/media/music
 ```
+
+That means Docker reads the files from `/mnt/media/videos` and `/mnt/music` on the host, but inside the container Jellyfin still sees them at `/media/usb2/videos` and `/media/music`, which preserves the paths already recorded in Jellyfin's database.
 
 Before starting the containerized Jellyfin:
 
@@ -140,8 +236,8 @@ sudo systemctl disable jellyfin
 Then migrate your media to the real USB-backed path if needed, for example:
 
 ```bash
-sudo mkdir -p /mnt/media/jellyfin
-rsync -avh --progress /old/media/path/ /mnt/media/jellyfin/
+sudo mkdir -p /path/on/host/for/movies
+rsync -avh --progress /old/media/path/ /path/on/host/for/movies/
 ```
 
 After that, start only Jellyfin in Docker first:
@@ -164,9 +260,9 @@ Create `/etc/systemd/system/home-server-compose.service`:
 [Unit]
 Description=Home server Docker Compose stack
 Requires=docker.service
-After=docker.service network-online.target mnt-photos.mount mnt-media.mount
+After=docker.service network-online.target
 Wants=network-online.target
-RequiresMountsFor=/mnt/photos /mnt/media
+RequiresMountsFor=/path/used/by/compose /another/path/used/by/compose
 
 [Service]
 Type=oneshot
@@ -194,6 +290,7 @@ sudo systemctl start home-server-compose.service
 - The Postgres data path is host-backed and should remain on the internal disk.
 - The Immich service definitions are intentionally kept close to your current working stack to reduce upgrade risk.
 - Jellyfin is configured to reuse the standard Ubuntu Jellyfin directories so a native install can be migrated into Docker without rebuilding library state from scratch.
+- Piper listens on host port `10200`, and Faster Whisper listens on host port `10300` for Wyoming clients such as Home Assistant.
 - The `systemd` unit above is what guarantees mount ordering on boot; container restart policies alone do not solve that dependency.
 
 ## Things to verify on the host

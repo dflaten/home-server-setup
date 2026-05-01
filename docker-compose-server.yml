@@ -99,9 +99,26 @@ services:
       - TZ=${TZ}
       - PIPER_VOICE=${PIPER_VOICE}
 
+  faster-whisper:
+    container_name: faster-whisper
+    image: lscr.io/linuxserver/faster-whisper:latest
+    restart: unless-stopped
+    ports:
+      - "10300:10300"
+    volumes:
+      - faster-whisper-data:/config
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - WHISPER_BEAM=${WHISPER_BEAM}
+      - WHISPER_LANG=${WHISPER_LANG}
+      - WHISPER_MODEL=${WHISPER_MODEL}
+
 volumes:
   model-cache:
   piper-data:
+  faster-whisper-data:
 
 networks:
   immich-net:
