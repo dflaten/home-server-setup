@@ -123,6 +123,12 @@ For voice services, configure:
 - `WHISPER_LANG`
 - `WHISPER_MODEL`
 
+For the ContainerScan launcher, configure:
+
+- `CONTAINERSCAN_REPO_PATH`
+
+`home-server-setup` does not define the ContainerScan services directly. Instead, it expects a separate `ContainerScan` checkout and starts that repository's own `docker-compose.yml`. The default `CONTAINERSCAN_REPO_PATH` assumes `home-server-setup` and `ContainerScan` are sibling directories.
+
 Example path mapping:
 
 ```env
@@ -148,6 +154,21 @@ Concrete example:
 - The Compose file will bind-mount `/mnt/media/videos` from the host so Jellyfin sees it at `/media/usb2/videos` inside the container.
 
 `.env` is local machine configuration. Do not commit it to Git. Only commit `.env.example`.
+
+Suggested ContainerScan launcher value:
+
+```env
+CONTAINERSCAN_REPO_PATH=../ContainerScan
+```
+
+Then configure runtime settings in the `ContainerScan` repo itself:
+
+```bash
+cd ../ContainerScan
+cp .env.example .env
+```
+
+That keeps ContainerScan's host port, public base URL, database path, image path, and database credentials in the same repository that owns the application compose file.
 
 ## Environment variable reference
 
@@ -177,12 +198,20 @@ Concrete example:
 | `WHISPER_BEAM` | Faster Whisper | Beam search width used during transcription. | `1` | Lower is faster; higher may improve accuracy at higher CPU cost. |
 | `WHISPER_LANG` | Faster Whisper | Language hint for transcription. | `auto` | Use `auto` for auto-detection or set a language code for more predictable recognition. |
 | `WHISPER_MODEL` | Faster Whisper | Speech-to-text model size. | `base` | Larger models are usually more accurate and slower. Pick based on your hardware. |
+| `CONTAINERSCAN_REPO_PATH` | ContainerScan launcher script | Host path to the local `ContainerScan` repository whose own `docker-compose.yml` should be started. | `../ContainerScan` | The default assumes the repo is checked out beside `home-server-setup`. Set an absolute path if you clone it elsewhere. |
 
 ## 4. Start the stack manually
 
 ```bash
 docker compose -f docker-compose-server.yml --env-file .env up -d
 ```
+
+ContainerScan launcher notes:
+
+- `home-server-setup` does not start ContainerScan as part of `docker-compose-server.yml`.
+- Use `./scripts/containerscan-compose.sh up` to start the sibling `ContainerScan` compose project.
+- Use `./scripts/containerscan-compose.sh down` to stop it and `./scripts/containerscan-compose.sh logs` to inspect it.
+- Configure ContainerScan's own runtime values in `../ContainerScan/.env`.
 
 ## Migrating Jellyfin from native Ubuntu install to Docker
 
@@ -276,13 +305,61 @@ TimeoutStartSec=0
 WantedBy=multi-user.target
 ```
 
+If you also want ContainerScan to start at boot, create a second unit such as `/etc/systemd/system/containerscan-compose.service`:
+
+```ini
+[Unit]
+Description=ContainerScan Docker Compose stack
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+RequiresMountsFor=/home/david/projects/ContainerScan /srv/containerscan/postgres /srv/containerscan/images
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/david/projects/home-server-setup
+ExecStart=/home/david/projects/home-server-setup/scripts/containerscan-compose.sh up
+ExecStop=/home/david/projects/home-server-setup/scripts/containerscan-compose.sh down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
+```
+
 Then enable it:
 
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable home-server-compose.service
 sudo systemctl start home-server-compose.service
+
+sudo systemctl enable containerscan-compose.service
+sudo systemctl start containerscan-compose.service
 ```
+
+## 6. Run a backup script once a week with cron
+
+If you have a backup script you want to run on a schedule, make sure it is executable and uses absolute paths for any commands or files it depends on.
+
+Example:
+
+```bash
+chmod +x /home/david/projects/home-server-setup/scripts/backup.sh
+crontab -e
+```
+
+Add a weekly cron entry like this to run the script every Sunday at 3:00 AM:
+
+```cron
+0 3 * * 0 /bin/bash /home/david/projects/home-server-setup/scripts/backup.sh >> /var/log/home-server-backup.log 2>&1
+```
+
+Notes:
+
+- Replace `/home/david/projects/home-server-setup/scripts/backup.sh` with the real path to your backup script.
+- `cron` runs with a minimal environment, so avoid relying on shell aliases, relative paths, or environment variables that are only set in your interactive shell.
+- The log redirection is optional, but it makes it easier to confirm that the job ran and to inspect failures.
 
 ## Notes on the current Compose file
 
