@@ -5,14 +5,40 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 HOME_SERVER_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd)
 ENV_FILE=${HOME_SERVER_ROOT}/.env
 
-if [[ -f "$ENV_FILE" ]]; then
-  set -a
-  # shellcheck disable=SC1090
-  source "$ENV_FILE"
-  set +a
-fi
+read_env_value() {
+  local key=$1
+  local file=$2
+  python3 - "$key" "$file" <<'PYENV'
+import sys
+from pathlib import Path
 
-REPO_PATH=${CONTAINERSCAN_REPO_PATH:-../ContainerScan}
+key = sys.argv[1]
+path = Path(sys.argv[2])
+if not path.exists():
+    raise SystemExit(1)
+
+for raw_line in path.read_text().splitlines():
+    line = raw_line.strip()
+    if not line or line.startswith('#') or '=' not in line:
+        continue
+    current_key, value = line.split('=', 1)
+    if current_key.strip() != key:
+        continue
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        value = value[1:-1]
+    print(value)
+    raise SystemExit(0)
+raise SystemExit(1)
+PYENV
+}
+
+REPO_PATH=../ContainerScan
+if [[ -f "$ENV_FILE" ]]; then
+  if env_repo_path=$(read_env_value CONTAINERSCAN_REPO_PATH "$ENV_FILE"); then
+    REPO_PATH=$env_repo_path
+  fi
+fi
 if [[ "$REPO_PATH" != /* ]]; then
   REPO_PATH=${HOME_SERVER_ROOT}/${REPO_PATH}
 fi
