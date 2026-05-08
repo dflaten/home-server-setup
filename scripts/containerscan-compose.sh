@@ -44,7 +44,6 @@ if [[ "$REPO_PATH" != /* ]]; then
 fi
 
 COMPOSE_FILE=${REPO_PATH}/docker-compose.yml
-PROJECT_ENV_FILE=${REPO_PATH}/.env
 ACTION=${1:-up}
 shift || true
 
@@ -54,8 +53,8 @@ if [[ ! -f "$COMPOSE_FILE" ]]; then
 fi
 
 compose_args=(--project-directory "$REPO_PATH" -f "$COMPOSE_FILE")
-if [[ -f "$PROJECT_ENV_FILE" ]]; then
-  compose_args+=(--env-file "$PROJECT_ENV_FILE")
+if [[ -f "$ENV_FILE" ]]; then
+  compose_args+=(--env-file "$ENV_FILE")
 fi
 
 case "$ACTION" in

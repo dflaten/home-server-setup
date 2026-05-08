@@ -123,11 +123,18 @@ For voice services, configure:
 - `WHISPER_LANG`
 - `WHISPER_MODEL`
 
-For the ContainerScan launcher, configure:
+For ContainerScan, configure these values directly in `home-server-setup/.env`:
 
 - `CONTAINERSCAN_REPO_PATH`
+- `CONTAINERSCAN_HTTP_PORT`
+- `CONTAINERSCAN_PUBLIC_BASE_URL`
+- `CONTAINERSCAN_DB_DATA_LOCATION`
+- `CONTAINERSCAN_IMAGE_DATA_LOCATION`
+- `CONTAINERSCAN_DB_NAME`
+- `CONTAINERSCAN_DB_USER`
+- `CONTAINERSCAN_DB_PASSWORD`
 
-`home-server-setup` does not define the ContainerScan services directly. Instead, it expects a separate `ContainerScan` checkout and starts that repository's own `docker-compose.yml`. The default `CONTAINERSCAN_REPO_PATH` assumes `home-server-setup` and `ContainerScan` are sibling directories.
+`home-server-setup` still does not define the ContainerScan services directly. It starts the separate `ContainerScan` repository's own `docker-compose.yml`, but it now passes the values from `home-server-setup/.env` into that compose project so you only configure ContainerScan in one place. The default `CONTAINERSCAN_REPO_PATH` assumes `home-server-setup` and `ContainerScan` are sibling directories.
 
 Example path mapping:
 
@@ -155,20 +162,27 @@ Concrete example:
 
 `.env` is local machine configuration. Do not commit it to Git. Only commit `.env.example`.
 
-Suggested ContainerScan launcher value:
+Suggested ContainerScan values:
 
 ```env
 CONTAINERSCAN_REPO_PATH=../ContainerScan
+CONTAINERSCAN_HTTP_PORT=8088
+CONTAINERSCAN_PUBLIC_BASE_URL=http://containerscan.local:8088
+CONTAINERSCAN_DB_DATA_LOCATION=/srv/containerscan/postgres
+CONTAINERSCAN_IMAGE_DATA_LOCATION=/srv/containerscan/images
+CONTAINERSCAN_DB_NAME=containerscan
+CONTAINERSCAN_DB_USER=containerscan
+CONTAINERSCAN_DB_PASSWORD=replace-with-a-long-random-password
 ```
 
-Then configure runtime settings in the `ContainerScan` repo itself:
+Before first start, create the persistent directories you reference in `.env`, for example:
 
 ```bash
-cd ../ContainerScan
-cp .env.example .env
+sudo mkdir -p /srv/containerscan/postgres /srv/containerscan/images
+sudo chown -R 1000:1000 /srv/containerscan/images
 ```
 
-That keeps ContainerScan's host port, public base URL, database path, image path, and database credentials in the same repository that owns the application compose file.
+The Postgres directory will be initialized by the container. The images directory is where uploaded container photos will persist on the host.
 
 ## Environment variable reference
 
@@ -199,6 +213,13 @@ That keeps ContainerScan's host port, public base URL, database path, image path
 | `WHISPER_LANG` | Faster Whisper | Language hint for transcription. | `auto` | Use `auto` for auto-detection or set a language code for more predictable recognition. |
 | `WHISPER_MODEL` | Faster Whisper | Speech-to-text model size. | `base` | Larger models are usually more accurate and slower. Pick based on your hardware. |
 | `CONTAINERSCAN_REPO_PATH` | ContainerScan launcher script | Host path to the local `ContainerScan` repository whose own `docker-compose.yml` should be started. | `../ContainerScan` | The default assumes the repo is checked out beside `home-server-setup`. Set an absolute path if you clone it elsewhere. |
+| `CONTAINERSCAN_HTTP_PORT` | ContainerScan nginx | Host port exposed for the ContainerScan web UI and scan routes. | `8088` | Must not conflict with another host service. If you later put this behind a LAN reverse proxy, you may stop exposing this port directly. |
+| `CONTAINERSCAN_PUBLIC_BASE_URL` | ContainerScan backend, frontend | Stable LAN URL encoded into generated QR labels and used by the frontend origin. | `http://containerscan.local:8088` | Treat this as durable. Changing it later means previously printed QR labels point at the wrong address. |
+| `CONTAINERSCAN_DB_DATA_LOCATION` | ContainerScan Postgres | Host path for the ContainerScan Postgres data directory. | `/srv/containerscan/postgres` | Persist this on internal storage. Do not put the database on removable media unless you accept the failure mode. |
+| `CONTAINERSCAN_IMAGE_DATA_LOCATION` | ContainerScan backend | Host path for uploaded container images. | `/srv/containerscan/images` | Back this up together with the database if you care about recovery. |
+| `CONTAINERSCAN_DB_NAME` | ContainerScan Postgres, backend | Database name for ContainerScan. | `containerscan` | Usually set once and left alone. |
+| `CONTAINERSCAN_DB_USER` | ContainerScan Postgres, backend | Database role used by ContainerScan. | `containerscan` | Usually set once and left alone. |
+| `CONTAINERSCAN_DB_PASSWORD` | ContainerScan Postgres, backend | Postgres password for ContainerScan. | `changeMeToALongRandomPassword` | Set this before first deploy. Changing it later requires updating all ContainerScan consumers consistently. |
 
 ## 4. Start the stack manually
 
@@ -211,7 +232,7 @@ ContainerScan launcher notes:
 - `home-server-setup` does not start ContainerScan as part of `docker-compose-server.yml`.
 - Use `./scripts/containerscan-compose.sh up` to start the sibling `ContainerScan` compose project.
 - Use `./scripts/containerscan-compose.sh down` to stop it and `./scripts/containerscan-compose.sh logs` to inspect it.
-- Configure ContainerScan's own runtime values in `../ContainerScan/.env`.
+- The launcher passes `home-server-setup/.env` into the ContainerScan compose project, so you do not need a second `.env` file in the `ContainerScan` repo.
 
 ## Migrating Jellyfin from native Ubuntu install to Docker
 
