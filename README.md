@@ -214,8 +214,41 @@ docker compose -f docker-compose-server.yml --env-file .env up -d piper faster-w
 
 Notes:
 
-- `redis` and `database` are pinned by `@sha256:` digest, so they never change until you deliberately edit `docker-compose-server.yml`.
+- `redis` is pinned by `@sha256:` digest, so it never changes until you deliberately edit `docker-compose-server.yml`. `database` is pinned to a versioned VectorChord tag, not a digest.
 - `IMMICH_VERSION=release` tracks the current Immich release. Upgrading Immich can run database migrations against `DB_DATA_LOCATION`, so take a backup and read the release notes before pulling it. If you want to control Immich separately, pull its services by name (`immich-server immich-machine-learning`) after backing up.
 - `docker compose ... up -d --pull always` combines the pull and recreate steps, but check for image updates with `pull` first so a surprise Immich upgrade does not start unattended.
 - ContainerScan runs from its own compose file. Use `./scripts/containerscan-compose.sh up` to rebuild it after changing that repository.
 - `docker image prune` removes dangling images left behind after new containers are running.
+
+### Migrating from pgvecto.rs to VectorChord (Immich v3)
+
+Immich v3 dropped the pgvecto.rs extension. A stack that was deployed with the old `tensorchord/pgvecto-rs` database image and then pulled a v3 server will crash-loop with:
+
+```text
+Error: No vector extension found. Available extensions: vchord, vector
+```
+
+The `database` service in `docker-compose-server.yml` now uses `ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0`, which ships VectorChord plus the pgvector and pgvecto.rs compatibility layers. The server converts the database automatically on startup.
+
+On the Docker host, pull this repo so the compose file and script are current, then run:
+
+```bash
+./scripts/immich-v3-migrate.sh
+```
+
+The script:
+
+1. Verifies the database still uses pgvecto.rs and that the compose file targets the VectorChord image for the same Postgres major version.
+2. Writes a `pg_dump` to `backups/` (git-ignored), then stops the Immich app containers.
+3. Pulls the new database image, recreates the database container, and restarts the stack.
+4. Follows the migration logs and waits up to 30 minutes for the API to answer on port 2283.
+5. Confirms `vchord` is installed, then prints the backup and log paths.
+
+Add `--yes` for unattended runs, `--backup-dir DIR` to choose where dumps go, or `--wait MINUTES` to extend the timeout. If the migration does not finish in time the script prints the exact commands to inspect the logs or restore the dump.
+
+Two cautions:
+
+- The migration reindexes the vector tables; on a large library it can sit at `Reindexing clip_index`/`Reindexing face_index` for many minutes. Do not restart it while it is working.
+- After migrating, do not downgrade Immich below v1.133.0 (and do not downgrade a v3 database at all).
+
+The existing `Multiple paths (/data, /usr/src/app/upload) exist at the same time` warning is separate and harmless. To move the server to the current `/data` layout later, change the `immich-server` volume to `${UPLOAD_LOCATION}:/data`, then run `docker exec -it immich_server ./server/bin/immich-admin change-media-location` and enter `/usr/src/app/upload` → `/data`.

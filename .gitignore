@@ -6,5 +6,8 @@
 library/
 postgres/
 
+# Database dumps and migration logs written by scripts/immich-v3-migrate.sh
+backups/
+
 # Editor / OS noise
 .DS_Store
