@@ -193,3 +193,29 @@ docker compose version
 docker compose -f docker-compose-server.yml --env-file .env config
 sudo systemctl status home-server-compose.service
 ```
+
+## Updating images
+
+Rebooting does **not** update anything. The systemd unit runs `docker compose up -d`, and Compose only pulls an image when no local copy exists. Docker's `restart: always` / `unless-stopped` policies simply restart the containers that are already on disk, so `:latest` and `:release` tags stay at whatever version was last pulled.
+
+Pull new images and recreate the containers explicitly:
+
+```bash
+docker compose -f docker-compose-server.yml --env-file .env pull
+docker compose -f docker-compose-server.yml --env-file .env up -d
+```
+
+To refresh only the STT containers, name the services:
+
+```bash
+docker compose -f docker-compose-server.yml --env-file .env pull piper faster-whisper
+docker compose -f docker-compose-server.yml --env-file .env up -d piper faster-whisper
+```
+
+Notes:
+
+- `redis` and `database` are pinned by `@sha256:` digest, so they never change until you deliberately edit `docker-compose-server.yml`.
+- `IMMICH_VERSION=release` tracks the current Immich release. Upgrading Immich can run database migrations against `DB_DATA_LOCATION`, so take a backup and read the release notes before pulling it. If you want to control Immich separately, pull its services by name (`immich-server immich-machine-learning`) after backing up.
+- `docker compose ... up -d --pull always` combines the pull and recreate steps, but check for image updates with `pull` first so a surprise Immich upgrade does not start unattended.
+- ContainerScan runs from its own compose file. Use `./scripts/containerscan-compose.sh up` to rebuild it after changing that repository.
+- `docker image prune` removes dangling images left behind after new containers are running.
